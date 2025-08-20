@@ -84,18 +84,18 @@ class RegisterController extends Controller
     //     //     'status_user' => 1,
     //     // ]);
     // }
-    public function register(Request $request)
-    {
-        $this->validator($request->all())->validate();
+    // public function register(Request $request)
+    // {
+    //     $this->validator($request->all())->validate();
 
-        event(new Registered($user = $this->create($request->all())));
+    //     event(new Registered($user = $this->create($request->all())));
 
-        // $this->guard()->login($user);
-        //this commented to avoid register user being auto logged in
+    //     // $this->guard()->login($user);
+    //     //this commented to avoid register user being auto logged in
 
-        return $this->registered($request, $user)
-            ?: redirect($this->redirectPath());
-    }
+    //     return $this->registered($request, $user)
+    //         ?: redirect($this->redirectPath());
+    // }
 
     protected function create(array $data)
     {
@@ -109,5 +109,17 @@ class RegisterController extends Controller
             'pin' => $data['pin'],
             'status_user' => 1,
         ]);
+    }
+
+    public function register(Request $request)
+    {
+        $this->validator($request->all())->validate();
+
+        event(new Registered($user = $this->create($request->all())));
+
+        return response()->json([
+            'message' => 'User registered successfully',
+            'user' => $user
+        ], 201);
     }
 }

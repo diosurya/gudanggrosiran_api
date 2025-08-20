@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Post;
+use App\Models\Blog;
 use Illuminate\Http\Request;
 
 class PostController extends Controller
@@ -12,7 +12,7 @@ class PostController extends Controller
     {
         $perPage = $request->get('per_page', 10);
 
-        $posts = Post::with(['author', 'category', 'stats'])
+        $posts = Blog::with(['author', 'category', 'stats'])
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
@@ -36,19 +36,19 @@ class PostController extends Controller
             'published_at'=> 'nullable|date',
         ]);
 
-        $post = Post::create($validated);
+        $post = Blog::create($validated);
         return response()->json($post, 201);
     }
 
     public function show($id)
     {
-        $post = Post::with(['author', 'category', 'comments', 'stats'])->findOrFail($id);
+        $post = Blog::with(['author', 'category', 'comments', 'stats'])->findOrFail($id);
         return response()->json($post);
     }
 
     public function update(Request $request, $id)
     {
-        $post = Post::findOrFail($id);
+        $post = Blog::findOrFail($id);
 
         $validated = $request->validate([
             'title'       => 'sometimes|required|string|max:255',
@@ -71,7 +71,7 @@ class PostController extends Controller
 
     public function destroy($id)
     {
-        $post = Post::findOrFail($id);
+        $post = Blog::findOrFail($id);
         $post->delete();
         return response()->json(null, 204);
     }

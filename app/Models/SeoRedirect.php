@@ -5,37 +5,33 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Brand extends Model
+class SeoRedirect extends Model
 {
     use HasUuids;
 
     protected $fillable = [
-        'name',
-        'slug',
-        'description',
-        'logo',
-        'website',
+        'old_url',
+        'new_url',
+        'status_code',
+        'hits',
         'is_active',
-        'meta_title',
-        'meta_description',
-        'meta_keywords',
     ];
 
     protected $casts = [
+        'status_code' => 'integer',
+        'hits' => 'integer',
         'is_active' => 'boolean',
     ];
-
-    // Products from this brand
-    public function products(): HasMany
-    {
-        return $this->hasMany(Product::class, 'brand_id');
-    }
 
     // Scopes
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    public function scopePopular($query)
+    {
+        return $query->orderBy('hits', 'desc');
     }
 }

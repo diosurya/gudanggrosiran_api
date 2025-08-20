@@ -7,13 +7,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class ProductImage extends Model
+class BlogImage extends Model
 {
     use HasUuids;
 
     protected $fillable = [
-        'product_id',
-        'variant_id',
+        'blog_id',
         'path',
         'alt_text',
         'title',
@@ -26,16 +25,9 @@ class ProductImage extends Model
         'sort_order' => 'integer',
     ];
 
-    // Parent product
-    public function product(): BelongsTo
+   public function blog(): BelongsTo
     {
-        return $this->belongsTo(Product::class, 'product_id');
-    }
-
-    // Related variant (if any)
-    public function variant(): BelongsTo
-    {
-        return $this->belongsTo(ProductVariant::class, 'variant_id');
+        return $this->belongsTo(Blog::class, 'blog_id');
     }
 
     // Scopes
@@ -48,4 +40,4 @@ class ProductImage extends Model
     {
         return $query->orderBy('sort_order');
     }
-}
+} 

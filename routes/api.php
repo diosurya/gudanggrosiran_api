@@ -2,6 +2,9 @@
 
 use App\Http\Controllers\AkunController;
 use App\Http\Controllers\AlamatController;
+use App\Http\Controllers\Api\Auth\LoginController;
+use App\Http\Controllers\Api\Auth\RegisterController;
+use App\Http\Controllers\Api\BlogController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\MutationController;
@@ -20,11 +23,23 @@ Route::middleware(['auth:sanctum'])->group(function () {
 	Route::get('/me', [AuthController::class, 'me']);
 
 	//Logout
-	Route::get('/logout', [AuthController::class, 'logout']);
+	// Route::get('/logout', [AuthController::class, 'logout']);
+	Route::post('/auth/logout', [LoginController::class, 'logout']);
+
+
+
+	Route::apiResource('blogs', BlogController::class);
+	Route::apiResource('categories', CategoryController::class);
+
+	Route::apiResource('products', ProductController::class);
+	Route::apiResource('category_products', CategoryProductController::class);
+	// Route::apiResource('tags', TagController::class);
+	Route::apiResource('brands', BrandController::class);
 });
 
-// Login
-Route::post('/login', [AuthController::class, 'login']);
+// Auth
+Route::post('/auth/login', [LoginController::class, 'login']);
+Route::post('/auth/register', [RegisterController::class, 'register']);
 
 // Customer
 Route::get('/customer', [CustomerController::class, 'index']);
@@ -50,13 +65,7 @@ Route::post('/transactions/transfer', [TransactionController::class, 'transfer']
 // Mutation
 Route::get('/mutations', [MutationController::class, 'index']);
 
-Route::apiResource('posts', PostController::class);
-Route::apiResource('categories', CategoryController::class);
 
-Route::apiResource('products', ProductController::class);
-Route::apiResource('category_products', CategoryProductController::class);
-Route::apiResource('tags', TagController::class);
-Route::apiResource('brands', BrandController::class);
 
 // Additional routes
 // Route::get('products/{product}/variants', [ProductController::class, 'variants']);
