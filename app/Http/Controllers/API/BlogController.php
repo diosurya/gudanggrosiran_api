@@ -164,7 +164,7 @@ class BlogController extends Controller
 
                     DB::table('blog_images')->insert([
                         'id'         => (string) Str::uuid(),
-                        'blog_id'    => $blog->id, // pakai id dari model
+                        'blog_id'    => $blog->id,
                         'path'       => '/storage/' . $path,
                         'is_cover'   => $isCover,
                         'created_at' => now(),
