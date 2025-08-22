@@ -31,19 +31,16 @@ class ProductReview extends Model
         'is_approved' => 'boolean',
     ];
 
-    // Product relationship
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id');
     }
 
-    // User relationship (if registered user)
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
     }
 
-    // Scopes
     public function scopeApproved($query)
     {
         return $query->where('is_approved', true);

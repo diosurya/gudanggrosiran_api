@@ -3,10 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\BlogCategory;
 use App\Models\Category;
 use Illuminate\Http\Request;
 
-class CategoryController extends Controller
+class BlogCategoryController extends Controller
 {
     /**
      * List all categories with optional pagination
@@ -15,7 +16,7 @@ class CategoryController extends Controller
     {
         $perPage = $request->get('per_page', 10);
 
-        $categories = Category::with('posts') // relasi ke posts jika perlu
+        $categories = BlogCategory::with('blogs')
             ->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
@@ -29,11 +30,11 @@ class CategoryController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'slug' => 'required|string|unique:categories,slug',
+            'slug' => 'required|string|unique:blog_categories,slug',
             'description' => 'nullable|string',
         ]);
 
-        $category = Category::create($validated);
+        $category = BlogCategory::create($validated);
         return response()->json($category, 201);
     }
 
@@ -42,7 +43,7 @@ class CategoryController extends Controller
      */
     public function show($id)
     {
-        $category = Category::with('posts')->findOrFail($id);
+        $category = BlogCategory::with('blogs')->findOrFail($id);
         return response()->json($category);
     }
 
@@ -51,11 +52,11 @@ class CategoryController extends Controller
      */
     public function update(Request $request, $id)
     {
-        $category = Category::findOrFail($id);
+        $category = BlogCategory::findOrFail($id);
 
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
-            'slug' => 'sometimes|required|string|unique:categories,slug,' . $category->id,
+            'slug' => 'sometimes|required|string|unique:blog_categories,slug,' . $category->id,
             'description' => 'nullable|string',
         ]);
 
@@ -68,7 +69,7 @@ class CategoryController extends Controller
      */
     public function destroy($id)
     {
-        $category = Category::findOrFail($id);
+        $category = BlogCategory::findOrFail($id);
         $category->delete();
         return response()->json(null, 204);
     }

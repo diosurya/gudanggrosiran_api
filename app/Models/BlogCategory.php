@@ -12,6 +12,8 @@ class BlogCategory extends Model
 {
     use HasUuids;
 
+    protected $table = 'blog_categories';
+
     protected $fillable = [
         'parent_id',
         'name',

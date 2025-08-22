@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Blog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Http\JsonResponse;
 use Exception;
+use Illuminate\Support\Facades\Storage;
 
 class BlogController extends Controller
 {
@@ -27,27 +29,20 @@ class BlogController extends Controller
 
             $query = DB::table('blogs as b')
                 ->leftJoin('blog_categories as bc', 'b.category_id', '=', 'bc.id')
+                ->leftJoin('users as u', 'b.author_id', '=', 'u.id')
                 ->select([
-                    'b.id',
-                    'b.title',
-                    'b.slug',
-                    'b.excerpt',
-                    'b.reading_time',
-                    'b.status',
-                    'b.view_count',
-                    'b.share_count',
-                    'b.average_rating',
-                    'b.published_at',
-                    'b.created_at',
-                    'b.updated_at',
-                    'bc.name as category_name'
+                    'b.*',
+                    'bc.name as category_name',
+                    'u.id as author_id',
+                    'u.name as author_name',
+                    'u.email as author_email',
                 ]);
 
             if ($search) {
                 $query->where(function ($q) use ($search) {
                     $q->whereRaw('MATCH(b.title, b.content, b.excerpt) AGAINST(? IN BOOLEAN MODE)', [$search])
-                      ->orWhere('b.title', 'like', "%{$search}%")
-                      ->orWhere('b.excerpt', 'like', "%{$search}%");
+                    ->orWhere('b.title', 'like', "%{$search}%")
+                    ->orWhere('b.excerpt', 'like', "%{$search}%");
                 });
             }
 
@@ -71,14 +66,15 @@ class BlogController extends Controller
                 ->limit($perPage)
                 ->get();
 
-            // Get cover images for blogs
             $blogIds = $blogs->pluck('id');
+
+            // Cover images
             $coverImages = DB::table('blog_images')
                 ->whereIn('blog_id', $blogIds)
                 ->where('is_cover', true)
                 ->pluck('path', 'blog_id');
 
-            // Get tags for each blog
+            // Tags
             $blogTags = DB::table('blog_tag as bt')
                 ->join('tags as t', 'bt.tag_id', '=', 't.id')
                 ->whereIn('bt.blog_id', $blogIds)
@@ -86,10 +82,18 @@ class BlogController extends Controller
                 ->get()
                 ->groupBy('blog_id');
 
-            $blogs = $blogs->map(function ($blog) use ($coverImages, $blogTags) {
+            // Author photos
+            $authorIds = $blogs->pluck('author_id')->filter();
+            $authorPhotos = DB::table('user_photos')
+                ->whereIn('user_id', $authorIds)
+                ->pluck('user_id');
+
+            // Map result
+            $blogs = $blogs->map(function ($blog) use ($coverImages, $blogTags, $authorPhotos) {
                 $blogArray = (array) $blog;
                 $blogArray['cover_image'] = $coverImages[$blog->id] ?? null;
                 $blogArray['tags'] = $blogTags[$blog->id] ?? [];
+                $blogArray['author_photo'] = $authorPhotos[$blog->author_id] ?? null;
                 return $blogArray;
             });
 
@@ -120,68 +124,63 @@ class BlogController extends Controller
         DB::beginTransaction();
         
         try {
-            $data = $request->validate([
-                'category_id' => 'required|uuid|exists:blog_categories,id',
-                'title' => 'required|string|max:255',
-                'excerpt' => 'nullable|string',
-                'content' => 'nullable|string',
-                'reading_time' => 'integer|min:0',
-                'status' => 'in:draft,published,archived,scheduled',
-                'author_id' => 'nullable|uuid',
-                'published_at' => 'nullable|date',
-                'meta_title' => 'nullable|string|max:255',
+             $validated = $request->validate([
+                'title'           => 'required|string|max:255',
+                'slug'            => 'required|string|max:255|unique:blogs,slug',
+                'excerpt'         => 'nullable|string',
+                'content'         => 'nullable|string',
+                'seo_title'       => 'nullable|string|max:255',
+                'seo_description' => 'nullable|string',
+                'seo_keywords'    => 'nullable|string',
+                'meta_title'       => 'nullable|string|max:255',
                 'meta_description' => 'nullable|string',
-                'meta_keywords' => 'nullable|string',
-                'canonical_url' => 'nullable|string',
-                'og_title' => 'nullable|string|max:255',
-                'og_description' => 'nullable|string',
-                'og_image' => 'nullable|string',
-                'structured_data' => 'nullable|json',
-                'tags' => 'array',
-                'tags.*' => 'string'
+                'meta_keywords'    => 'nullable|string',
+                'category_id'     => 'nullable|uuid|exists:blog_categories,id',
+                'status'          => 'required|in:draft,published',
+                'images.*'        => 'nullable|image|mimes:jpg,jpeg,png',
             ]);
 
-            $data['id'] = Str::uuid();
-            $data['slug'] = Str::slug($data['title']);
-            
-            // Check slug uniqueness
-            $count = 1;
-            $originalSlug = $data['slug'];
-            while (DB::table('blogs')->where('slug', $data['slug'])->exists()) {
-                $data['slug'] = $originalSlug . '-' . $count;
-                $count++;
+            // create blog
+            $blog = Blog::create([
+                'title'           => $validated['title'],
+                'slug'            => $validated['slug'],
+                'excerpt'         => $validated['excerpt'] ?? null,
+                'content'         => $validated['content'] ?? null,
+                'seo_title'       => $validated['seo_title'] ?? null,
+                'seo_description' => $validated['seo_description'] ?? null,
+                'seo_keywords'    => $validated['seo_keywords'] ?? null,
+                'meta_title'       => $validated['meta_title'] ?? null,
+                'meta_description' => $validated['meta_description'] ?? null,
+                'meta_keywords'    => $validated['meta_keywords'] ?? null,
+                'category_id'     => $validated['category_id'] ?? null,
+                'status'          => $validated['status'],
+            ]);
+
+            // simpan images (jika ada)
+            if ($request->hasFile('images')) {
+                foreach ($request->file('images') as $index => $image) {
+                    $path = $image->store('blogs', 'public'); // storage/app/public/blogs
+                    $isCover = $index === 0;
+
+                    DB::table('blog_images')->insert([
+                        'id'         => (string) Str::uuid(),
+                        'blog_id'    => $blog->id, // pakai id dari model
+                        'path'       => '/storage/' . $path,
+                        'is_cover'   => $isCover,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
             }
 
-            // Auto calculate reading time if not provided
-            if (empty($data['reading_time']) && !empty($data['content'])) {
-                $wordCount = str_word_count(strip_tags($data['content']));
-                $data['reading_time'] = max(1, ceil($wordCount / 200)); // 200 words per minute
-            }
-
-            if ($data['status'] === 'published' && empty($data['published_at'])) {
-                $data['published_at'] = now();
-            }
-
-            $tags = $data['tags'] ?? [];
-            unset($data['tags']);
-
-            $data['created_at'] = now();
-            $data['updated_at'] = now();
-
-            DB::table('blogs')->insert($data);
-
-            // Handle tags
-            if (!empty($tags)) {
-                $this->syncBlogTags($data['id'], $tags);
-            }
-
+            // ambil kembali blog yang baru dibuat
             $blog = DB::table('blogs as b')
-                ->leftJoin('blog_categories as bc', 'b.category_id', '=', 'bc.id')
+                ->leftJoin('blog_categories as c', 'b.category_id', '=', 'c.id')
                 ->select([
                     'b.*',
-                    'bc.name as category_name'
+                    'c.name as category_name'
                 ])
-                ->where('b.id', $data['id'])
+                ->where('b.id', $blog->id)
                 ->first();
 
             DB::commit();
@@ -223,7 +222,159 @@ class BlogController extends Controller
                 ], 404);
             }
 
-            // Delete related data (cascading deletes handled by foreign keys)
+            // Get blog images
+            $images = DB::table('blog_images')
+                ->where('blog_id', $id)
+                ->get();
+
+            // Get blog tags
+            $tags = DB::table('blog_tag as bt')
+                ->join('tags as t', 'bt.tag_id', '=', 't.id')
+                ->where('bt.blog_id', $id)
+                ->select('t.id', 't.name', 't.slug', 't.color')
+                ->get();
+
+            // Add additional data to blog object
+            $blogArray = (array) $blog;
+            $blogArray['images'] = $images;
+            $blogArray['tags'] = $tags;
+            $blogArray['image_url'] = $images->where('is_cover', true)->first()->path ?? null;
+
+            return response()->json([
+                'success' => true,
+                'data' => $blogArray
+            ]);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch blog: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function update(Request $request, string $id): JsonResponse
+    {
+        DB::beginTransaction();
+        
+        try {
+            $blog = DB::table('blogs')->where('id', $id)->first();
+            if (!$blog) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Blog not found'
+                ], 404);
+            }
+
+            $validated = $request->validate([
+                'title'           => 'required|string|max:255',
+                'slug'            => 'required|string|max:255|unique:blogs,slug,' . $id,
+                'excerpt'         => 'nullable|string',
+                'content'         => 'nullable|string',
+                'meta_title'      => 'nullable|string|max:255',
+                'meta_description'=> 'nullable|string',
+                'meta_keywords'   => 'nullable|string',
+                'category_id'     => 'required|uuid|exists:blog_categories,id',
+                'status'          => 'required|in:draft,published,deactived',
+                'images.*'        => 'nullable|image|mimes:jpg,jpeg,png',
+            ]);
+
+            $updateData = [
+                'title'           => $validated['title'],
+                'slug'            => $validated['slug'],
+                'excerpt'         => $validated['excerpt'] ?? null,
+                'content'         => $validated['content'] ?? null,
+                'meta_title'      => $validated['meta_title'] ?? null,
+                'meta_description'=> $validated['meta_description'] ?? null,
+                'meta_keywords'   => $validated['meta_keywords'] ?? null,
+                'category_id'     => $validated['category_id'],
+                'status'          => $validated['status'],
+                'updated_at'      => now()
+            ];
+
+            DB::table('blogs')->where('id', $id)->update($updateData);
+
+            // Handle new images if uploaded
+            if ($request->hasFile('images')) {
+                // Delete old images
+                $oldImages = DB::table('blog_images')->where('blog_id', $id)->get();
+                foreach ($oldImages as $oldImage) {
+                    $imagePath = str_replace('/storage/', '', $oldImage->path);
+                    Storage::disk('public')->delete($imagePath);
+                }
+                DB::table('blog_images')->where('blog_id', $id)->delete();
+
+                // Save new images
+                foreach ($request->file('images') as $index => $image) {
+                    $path = $image->store('blogs', 'public');
+                    $isCover = $index === 0;
+
+                    DB::table('blog_images')->insert([
+                        'id'         => (string) Str::uuid(),
+                        'blog_id'    => $id,
+                        'path'       => '/storage/' . $path,
+                        'is_cover'   => $isCover,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+
+            // Get updated blog with relations
+            $updatedBlog = DB::table('blogs as b')
+                ->leftJoin('blog_categories as bc', 'b.category_id', '=', 'bc.id')
+                ->select([
+                    'b.*',
+                    'bc.name as category_name'
+                ])
+                ->where('b.id', $id)
+                ->first();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Blog updated successfully',
+                'data' => $updatedBlog
+            ]);
+
+        } catch (Exception $e) {
+            DB::rollback();
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update blog: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function destroy(string $id): JsonResponse
+    {
+        DB::beginTransaction();
+
+        try {
+            $blog = DB::table('blogs')->where('id', $id)->first();
+
+            if (!$blog) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Blog not found'
+                ], 404);
+            }
+
+            // Delete blog images from storage
+            $images = DB::table('blog_images')->where('blog_id', $id)->get();
+            foreach ($images as $image) {
+                $imagePath = str_replace('/storage/', '', $image->path);
+                Storage::disk('public')->delete($imagePath);
+            }
+
+            // Delete blog images records
+            DB::table('blog_images')->where('blog_id', $id)->delete();
+
+            // Delete blog tags relations
+            DB::table('blog_tag')->where('blog_id', $id)->delete();
+
+            // Delete blog
             DB::table('blogs')->where('id', $id)->delete();
 
             DB::commit();
@@ -234,7 +385,8 @@ class BlogController extends Controller
             ]);
 
         } catch (Exception $e) {
-            DB::rollback();
+            DB::rollBack();
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to delete blog: ' . $e->getMessage()
@@ -445,148 +597,4 @@ class BlogController extends Controller
         }
     }
 
-
-    /**
-     * Update the specified blog
-     */
-    public function update(Request $request, string $id): JsonResponse
-    {
-        DB::beginTransaction();
-        
-        try {
-            $exists = DB::table('blogs')->where('id', $id)->exists();
-            if (!$exists) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Blog not found'
-                ], 404);
-            }
-
-            $data = $request->validate([
-                'category_id' => 'required|uuid|exists:blog_categories,id',
-                'title' => 'required|string|max:255',
-                'excerpt' => 'nullable|string',
-                'content' => 'nullable|string',
-                'reading_time' => 'integer|min:0',
-                'status' => 'in:draft,published,archived,scheduled',
-                'author_id' => 'nullable|uuid',
-                'published_at' => 'nullable|date',
-                'meta_title' => 'nullable|string|max:255',
-                'meta_description' => 'nullable|string',
-                'meta_keywords' => 'nullable|string',
-                'canonical_url' => 'nullable|string',
-                'og_title' => 'nullable|string|max:255',
-                'og_description' => 'nullable|string',
-                'og_image' => 'nullable|string',
-                'structured_data' => 'nullable|json',
-                'tags' => 'array',
-                'tags.*' => 'string'
-            ]);
-
-            $currentBlog = DB::table('blogs')->where('id', $id)->first();
-            
-            if ($data['title'] !== $currentBlog->title) {
-                $data['slug'] = Str::slug($data['title']);
-                
-                $count = 1;
-                $originalSlug = $data['slug'];
-                while (DB::table('blogs')
-                    ->where('slug', $data['slug'])
-                    ->where('id', '!=', $id)
-                    ->exists()) {
-                    $data['slug'] = $originalSlug . '-' . $count;
-                    $count++;
-                }
-            }
-
-            // Auto calculate reading time if not provided
-            if (empty($data['reading_time']) && !empty($data['content'])) {
-                $wordCount = str_word_count(strip_tags($data['content']));
-                $data['reading_time'] = max(1, ceil($wordCount / 200));
-            }
-
-            if ($data['status'] === 'published' && empty($currentBlog->published_at)) {
-                $data['published_at'] = now();
-            }
-
-            $tags = $data['tags'] ?? [];
-            unset($data['tags']);
-
-            $data['updated_at'] = now();
-
-            DB::table('blogs')->where('id', $id)->update($data);
-
-            // Handle tags
-            if (!empty($tags)) {
-                $this->syncBlogTags($id, $tags);
-            }
-
-            $blog = DB::table('blogs as b')
-                ->leftJoin('blog_categories as bc', 'b.category_id', '=', 'bc.id')
-                ->select([
-                    'b.*',
-                    'bc.name as category_name'
-                ])
-                ->where('b.id', $id)
-                ->first();
-
-            DB::commit();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Blog updated successfully',
-                'data' => $blog
-            ]);
-
-        } catch (Exception $e) {
-            DB::rollback();
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update blog: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Remove the specified blog
-     */
-   /**
-     * Remove the specified blog
-     */
-    public function destroy(string $id): JsonResponse
-    {
-        DB::beginTransaction();
-
-        try {
-            $blog = DB::table('blogs')->where('id', $id)->first();
-
-            if (!$blog) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Blog not found'
-                ], 404);
-            }
-
-            // Hapus relasi tags (jika ada pivot table blog_tag misalnya)
-            DB::table('blog_tag')->where('blog_id', $id)->delete();
-
-            // Hapus blog
-            DB::table('blogs')->where('id', $id)->delete();
-
-            DB::commit();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Blog deleted successfully'
-            ], 200);
-
-        } catch (Exception $e) {
-            DB::rollBack();
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to delete blog: ' . $e->getMessage()
-            ], 500);
-        }
-    }
 }

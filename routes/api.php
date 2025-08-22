@@ -4,6 +4,7 @@ use App\Http\Controllers\AkunController;
 use App\Http\Controllers\AlamatController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\RegisterController;
+use App\Http\Controllers\Api\BlogCategoryController;
 use App\Http\Controllers\Api\BlogController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\AuthController;
@@ -29,9 +30,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
 
 	Route::apiResource('blogs', BlogController::class);
-	Route::apiResource('categories', CategoryController::class);
+	Route::apiResource('categories', BlogCategoryController::class);
 
-	Route::apiResource('products', ProductController::class);
+	// Route::apiResource('products', ProductController::class);
 	Route::apiResource('category_products', CategoryProductController::class);
 	// Route::apiResource('tags', TagController::class);
 	Route::apiResource('brands', BrandController::class);
@@ -72,4 +73,4 @@ Route::get('/mutations', [MutationController::class, 'index']);
 // Route::post('products/{product}/variants', [ProductController::class, 'storeVariant']);
 // Route::get('products/search', [ProductController::class, 'search']);
 
-Route::get('categories/tree', [CategoryController::class, 'tree']);
+// Route::get('categories/tree', [BlogCategoryController::class, 'tree']);

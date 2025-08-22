@@ -26,7 +26,6 @@ class ProductImage extends Model
         'sort_order' => 'integer',
     ];
 
-    // Parent product
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class, 'product_id');
