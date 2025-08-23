@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Http\JsonResponse;
 use Exception;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class BlogController extends Controller
@@ -191,6 +192,9 @@ class BlogController extends Controller
                 'data' => $blog
             ], 201);
 
+            Log::info('Files', $request->file('images') ?? []);
+
+
         } catch (Exception $e) {
             DB::rollback();
             return response()->json([
@@ -255,8 +259,12 @@ class BlogController extends Controller
 
     public function update(Request $request, string $id): JsonResponse
     {
+
+        //   return response()->json([
+        //     'all' => $request->all(),
+        //     'files' => $request->file('images'),
+        // ]);
         DB::beginTransaction();
-        
         try {
             $blog = DB::table('blogs')->where('id', $id)->first();
             if (!$blog) {
@@ -296,7 +304,7 @@ class BlogController extends Controller
 
             // Handle new images if uploaded
             if ($request->hasFile('images')) {
-                // Delete old images
+
                 $oldImages = DB::table('blog_images')->where('blog_id', $id)->get();
                 foreach ($oldImages as $oldImage) {
                     $imagePath = str_replace('/storage/', '', $oldImage->path);
@@ -304,7 +312,7 @@ class BlogController extends Controller
                 }
                 DB::table('blog_images')->where('blog_id', $id)->delete();
 
-                // Save new images
+
                 foreach ($request->file('images') as $index => $image) {
                     $path = $image->store('blogs', 'public');
                     $isCover = $index === 0;
@@ -320,7 +328,6 @@ class BlogController extends Controller
                 }
             }
 
-            // Get updated blog with relations
             $updatedBlog = DB::table('blogs as b')
                 ->leftJoin('blog_categories as bc', 'b.category_id', '=', 'bc.id')
                 ->select([
@@ -337,6 +344,8 @@ class BlogController extends Controller
                 'message' => 'Blog updated successfully',
                 'data' => $updatedBlog
             ]);
+
+            Log::info('Files', $request->file('images') ?? []);
 
         } catch (Exception $e) {
             DB::rollback();
