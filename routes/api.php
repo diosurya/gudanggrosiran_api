@@ -12,6 +12,7 @@ use App\Http\Controllers\MutationController;
 use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\Api\PostController;
 use App\Http\Controllers\Api\CategoryController;
+use App\Http\Controllers\Api\MediaController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\CategoryProductController;
 use App\Http\Controllers\BrandController;
@@ -36,6 +37,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
 	Route::apiResource('category_products', CategoryProductController::class);
 	// Route::apiResource('tags', TagController::class);
 	Route::apiResource('brands', BrandController::class);
+
+
+	// Media
+	Route::prefix('media')->group(function () {
+        Route::get('/', [MediaController::class, 'index']);
+        Route::post('/upload', [MediaController::class, 'upload']);
+        Route::get('/{id}', [MediaController::class, 'show']);
+        Route::put('/{id}', [MediaController::class, 'update']);
+        Route::delete('/{id}', [MediaController::class, 'destroy']);
+        Route::get('/type/{type}', [MediaController::class, 'getByType']);
+        Route::get('/search/query', [MediaController::class, 'search']);
+        Route::get('/stats/overview', [MediaController::class, 'getStats']);
+        
+    });
 });
 
 // Auth

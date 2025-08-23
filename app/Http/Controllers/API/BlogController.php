@@ -259,11 +259,6 @@ class BlogController extends Controller
 
     public function update(Request $request, string $id): JsonResponse
     {
-
-        //   return response()->json([
-        //     'all' => $request->all(),
-        //     'files' => $request->file('images'),
-        // ]);
         DB::beginTransaction();
         try {
             $blog = DB::table('blogs')->where('id', $id)->first();
