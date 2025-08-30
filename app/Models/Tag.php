@@ -11,16 +11,16 @@ class Tag extends Model
 {
     use HasUuids;
 
-    protected $fillable = [
-        'name',
-        'slug',
-        'description',
-        'color',
-        'usage_count',
+    protected $guarded = [
+        'id'
     ];
 
     protected $casts = [
         'usage_count' => 'integer',
+    ];
+
+     protected $attributes = [
+        'color' => '#1976d2',
     ];
 
     // Products with this tag (many-to-many)
@@ -44,5 +44,10 @@ class Tag extends Model
     public function scopeByName($query, $name)
     {
         return $query->where('name', 'like', "%{$name}%");
+    }
+
+    public function scopeByColor($query, $color)
+    {
+        return $query->where('color', $color);
     }
 }

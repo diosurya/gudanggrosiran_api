@@ -1,21 +1,27 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Api\Admin;
 
+use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Models\CategoryProduct;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Http\JsonResponse;
 
 class CategoryProductController extends Controller
 {
      public function index(): JsonResponse
     {
-        $category_products = CategoryProducts::with(['parent', 'children'])
+        $category_products = CategoryProduct::with(['parent', 'children'])
             ->orderBy('sort_order')
             ->get();
 
         return response()->json($category_products);
     }
 
-    public function show(Category $category): JsonResponse
+    public function show(CategoryProduct $category): JsonResponse
     {
         $category->load(['parent', 'children', 'products']);
         return response()->json($category);
@@ -31,11 +37,11 @@ class CategoryProductController extends Controller
             'is_active' => 'boolean',
         ]);
 
-        $category = Category::create($validated);
+        $category = CategoryProduct::create($validated);
         return response()->json($category, 201);
     }
 
-    public function update(Request $request, Category $category): JsonResponse
+    public function update(Request $request, CategoryProduct $category): JsonResponse
     {
         $validated = $request->validate([
             'name' => 'string|max:255',
@@ -49,7 +55,7 @@ class CategoryProductController extends Controller
         return response()->json($category);
     }
 
-    public function destroy(Category $category): JsonResponse
+    public function destroy(CategoryProduct $category): JsonResponse
     {
         $category->delete();
         return response()->json(['message' => 'Category deleted successfully']);

@@ -127,6 +127,12 @@ class Media extends Model
     {
         return $query->where('created_at', '>=', now()->subDays($days));
     }
+
+    public function pagesAsBanner()
+    {
+        return $this->hasMany(Page::class, 'banner_image_id');
+    }
+
     
 
 }

@@ -2,67 +2,74 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class ProductVariant extends Model
 {
-    use HasUuids;
+    use HasFactory;
 
-    protected $fillable = [
-        'product_id',
-        'name',
-        'sku',
-        'attributes',
-        'price',
-        'discount_price',
-        'cost_price',
-        'stock',
-        'weight',
-        'image',
-        'is_default',
-        'is_active',
+    protected $guarded = [
+        'id'
     ];
 
     protected $casts = [
-        'attributes' => 'array',
         'price' => 'decimal:2',
-        'discount_price' => 'decimal:2',
-        'cost_price' => 'decimal:2',
         'weight' => 'decimal:2',
-        'stock' => 'integer',
-        'is_default' => 'boolean',
-        'is_active' => 'boolean',
+        'stock' => 'integer'
     ];
 
-    // Parent product
-    public function product(): BelongsTo
+    protected $attributes = [
+        'stock' => 0,
+    ];
+
+    // Relationships
+
+    /**
+     * Get the product that owns the variant
+     */
+    public function product()
     {
-        return $this->belongsTo(Product::class, 'product_id');
+        return $this->belongsTo(Product::class);
     }
 
-    // Variant-specific images
-    public function images(): HasMany
+    public function media(): BelongsToMany
     {
-        return $this->hasMany(ProductImage::class, 'variant_id');
+        return $this->belongsToMany(Media::class, 'product_variant_media');
     }
+
+
+    /**
+     * Get the primary image for the variant
+     */
+    public function getIsInStockAttribute()
+    {
+        return $this->stock > 0;
+    }
+
 
     // Scopes
+
+    /**
+     * Scope a query to only include in-stock variants
+     */
+    public function getStockStatusAttribute()
+    {
+        if ($this->stock > 10) {
+            return 'in_stock';
+        } elseif ($this->stock > 0) {
+            return 'low_stock';
+        } else {
+            return 'out_of_stock';
+        }
+    }
+
+    /**
+     * Scope a query to only include active variants
+     */
     public function scopeActive($query)
     {
-        return $query->where('is_active', true);
-    }
-
-    public function scopeInStock($query)
-    {
-        return $query->where('stock', '>', 0);
-    }
-
-    public function scopeDefault($query)
-    {
-        return $query->where('is_default', true);
+        return $query->where('status', 'active');
     }
 }

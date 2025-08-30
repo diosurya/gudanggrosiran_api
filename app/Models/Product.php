@@ -2,172 +2,240 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Product extends Model
 {
-    use HasUuids;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'category_id',
-        'subcategory_id',
-        'brand_id',
-        'title',
+        'name',
         'slug',
-        'sku',
-        'excerpt',
         'description',
-        'specifications',
+        'short_description',
+        'sku',
+        'price',
+        'sale_price',
+        'stock_quantity',
+        'category_product_id',
+        'brand_id',
+        'weight',
+        'dimensions',
+        'status',
+        'featured',
         'meta_title',
         'meta_description',
         'meta_keywords',
-        'canonical_url',
         'og_title',
         'og_description',
         'og_image',
-        'structured_data',
-        'price',
-        'discount_price',
-        'cost_price',
-        'stock',
-        'min_stock',
-        'track_stock',
-        'allow_backorder',
-        'weight',
-        'length',
-        'width',
-        'height',
-        'shipping_class_id',
-        'is_featured',
-        'is_digital',
-        'is_downloadable',
-        'requires_shipping',
-        'status',
-        'visibility',
-        'password',
-        'average_rating',
-        'review_count',
-        'view_count',
-        'purchase_count',
-        'published_at',
+        'twitter_title',
+        'twitter_description',
+        'twitter_image',
+        'canonical_url',
+        'robots',
+        'schema_type',
+        'views_count',
+        'sales_count'
     ];
 
     protected $casts = [
-        'structured_data' => 'array',
         'price' => 'decimal:2',
-        'discount_price' => 'decimal:2',
-        'cost_price' => 'decimal:2',
+        'sale_price' => 'decimal:2',
         'weight' => 'decimal:2',
-        'length' => 'decimal:2',
-        'width' => 'decimal:2',
-        'height' => 'decimal:2',
-        'is_featured' => 'boolean',
-        'is_digital' => 'boolean',
-        'is_downloadable' => 'boolean',
-        'requires_shipping' => 'boolean',
-        'track_stock' => 'boolean',
-        'allow_backorder' => 'boolean',
-        'stock' => 'integer',
-        'min_stock' => 'integer',
-        'review_count' => 'integer',
-        'view_count' => 'integer',
-        'purchase_count' => 'integer',
-        'average_rating' => 'decimal:2',
-        'published_at' => 'datetime',
+        'featured' => 'boolean',
+        'stock_quantity' => 'integer',
+        'views_count' => 'integer',
+        'sales_count' => 'integer'
     ];
 
-    // Category relationship
-    public function category(): BelongsTo
+    protected $dates = [
+        'deleted_at'
+    ];
+
+    // Relationships
+
+    /**
+     * Get the category that owns the product
+     */
+    public function category()
     {
-        return $this->belongsTo(ProductCategory::class, 'category_id');
+        return $this->belongsTo(CategoryProduct::class, 'category_product_id');
     }
 
-    // Subcategory relationship
-    public function subcategory(): BelongsTo
+    /**
+     * Get the brand that owns the product
+     */
+    public function brand()
     {
-        return $this->belongsTo(ProductSubcategory::class, 'subcategory_id');
+        return $this->belongsTo(Brand::class);
     }
 
-    // Brand relationship
-    public function brand(): BelongsTo
+    /**
+     * Get the tags for the product
+     */
+    public function tags()
     {
-        return $this->belongsTo(Brand::class, 'brand_id');
+        return $this->belongsToMany(Tag::class, 'product_tags');
     }
 
-    // Product variants
-    public function variants(): HasMany
+    /**
+     * Get the media/images for the product
+     */
+    public function media()
     {
-        return $this->hasMany(ProductVariant::class, 'product_id');
+        return $this->belongsToMany(Media::class, 'product_media')
+                    ->withTimestamps()
+                    ->orderBy('product_media.created_at');
     }
 
-    // Product images
-    public function images(): HasMany
+    /**
+     * Get the variants for the product
+     */
+    public function variants()
     {
-        return $this->hasMany(ProductImage::class, 'product_id')->orderBy('sort_order');
+        return $this->hasMany(ProductVariant::class);
     }
 
-    // Cover image
-    public function coverImage(): HasOne
+    /**
+     * Get the primary image for the product
+     */
+    public function primaryImage()
     {
-        return $this->hasOne(ProductImage::class, 'product_id')->where('is_cover', true);
+        return $this->belongsToMany(Media::class, 'product_media')
+                    ->withTimestamps()
+                    ->orderBy('product_media.created_at')
+                    ->limit(1);
     }
 
-    // Product reviews
-    public function reviews(): HasMany
+    /**
+     * Get the OG image
+     */
+    public function ogImage()
     {
-        return $this->hasMany(ProductReview::class, 'product_id');
+        return $this->belongsTo(Media::class, 'og_image', 'id');
     }
 
-    // Approved reviews
-    public function approvedReviews(): HasMany
+    /**
+     * Get the Twitter image
+     */
+    public function twitterImage()
     {
-        return $this->hasMany(ProductReview::class, 'product_id')->where('is_approved', true);
+        return $this->belongsTo(Media::class, 'twitter_image', 'id');
     }
 
-    // Product attribute values
-    public function attributeValues(): HasMany
+    // Accessors & Mutators
+
+    /**
+     * Get the product's discounted price
+     */
+    public function getDiscountedPriceAttribute()
     {
-        return $this->hasMany(ProductAttributeValue::class, 'product_id');
+        return $this->sale_price ?? $this->price;
     }
 
-    // Tags (many-to-many)
-    public function tags(): BelongsToMany
+    /**
+     * Get the product's discount percentage
+     */
+    public function getDiscountPercentageAttribute()
     {
-        return $this->belongsToMany(Tag::class, 'product_tag');
+        if (!$this->sale_price || $this->sale_price >= $this->price) {
+            return 0;
+        }
+
+        return round((($this->price - $this->sale_price) / $this->price) * 100);
+    }
+
+    /**
+     * Check if product is in stock
+     */
+    public function getIsInStockAttribute()
+    {
+        return $this->stock_quantity > 0;
+    }
+
+    /**
+     * Check if product has discount
+     */
+    public function getHasDiscountAttribute()
+    {
+        return $this->sale_price && $this->sale_price < $this->price;
     }
 
     // Scopes
+
+    /**
+     * Scope a query to only include published products
+     */
     public function scopePublished($query)
     {
-        return $query->where('status', 'published')
-                    ->where('visibility', 'public')
-                    ->whereNotNull('published_at')
-                    ->where('published_at', '<=', now());
+        return $query->where('status', 'published');
     }
 
+    /**
+     * Scope a query to only include featured products
+     */
     public function scopeFeatured($query)
     {
-        return $query->where('is_featured', true);
+        return $query->where('featured', true);
     }
 
+    /**
+     * Scope a query to only include in-stock products
+     */
     public function scopeInStock($query)
     {
-        return $query->where('stock', '>', 0);
+        return $query->where('stock_quantity', '>', 0);
     }
 
+    /**
+     * Scope a query to search products
+     */
+    public function scopeSearch($query, $search)
+    {
+        return $query->where(function($q) use ($search) {
+            $q->where('name', 'like', "%{$search}%")
+              ->orWhere('description', 'like', "%{$search}%")
+              ->orWhere('sku', 'like', "%{$search}%");
+        });
+    }
+
+    /**
+     * Scope a query to filter by category
+     */
     public function scopeByCategory($query, $categoryId)
     {
-        return $query->where('category_id', $categoryId);
+        return $query->where('category_product_id', $categoryId);
     }
 
+    /**
+     * Scope a query to filter by brand
+     */
     public function scopeByBrand($query, $brandId)
     {
         return $query->where('brand_id', $brandId);
+    }
+
+    /**
+     * Scope a query to filter by price range
+     */
+    public function scopePriceRange($query, $minPrice = null, $maxPrice = null)
+    {
+        if ($minPrice) {
+            $query->where('price', '>=', $minPrice);
+        }
+        
+        if ($maxPrice) {
+            $query->where('price', '<=', $maxPrice);
+        }
+
+        return $query;
+    }
+
+    public function store()
+    {
+        return $this->belongsTo(\App\Models\Store::class, 'store_id', 'id');
     }
 }

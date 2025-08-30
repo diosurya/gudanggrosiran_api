@@ -11,31 +11,34 @@ class Brand extends Model
 {
     use HasUuids;
 
-    protected $fillable = [
-        'name',
-        'slug',
-        'description',
-        'logo',
-        'website',
-        'is_active',
-        'meta_title',
-        'meta_description',
-        'meta_keywords',
+    protected $guarded = [
+        'id'
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'sort_order' => 'integer',
     ];
 
     // Products from this brand
     public function products(): HasMany
     {
-        return $this->hasMany(Product::class, 'brand_id');
+        return $this->hasMany(Product::class);
     }
 
-    // Scopes
+    /**
+     * Scope for active brands
+     */
     public function scopeActive($query)
     {
-        return $query->where('is_active', true);
+        return $query->where('status', 'active');
+    }
+
+    /**
+     * Scope for popular brands (with products)
+     */
+    public function scopePopular($query)
+    {
+        return $query->has('products')->withCount('products')->orderBy('products_count', 'desc');
     }
 }
