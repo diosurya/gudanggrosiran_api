@@ -26,8 +26,33 @@ class BlogController extends Controller
                     'b.published_at',
                     'bc.name as category_name',
                 ])
+                ->where('b.status', 'published')
                 ->orderByDesc('b.published_at')
                 ->get();
+
+            $blogIds = $blogs->pluck('id');
+
+            // Ambil cover images
+            $coverImages = DB::table('blog_images')
+                ->whereIn('blog_id', $blogIds)
+                ->where('is_cover', true)
+                ->pluck('path', 'blog_id');
+
+            // Ambil tags per blog
+            $tags = DB::table('blog_tag as bt')
+                ->join('tags as t', 'bt.tag_id', '=', 't.id')
+                ->whereIn('bt.blog_id', $blogIds)
+                ->select('bt.blog_id', 't.id', 't.name', 't.slug', 't.color')
+                ->get()
+                ->groupBy('blog_id');
+
+            // Mapping ke response
+            $blogs = $blogs->map(function ($blog) use ($coverImages, $tags) {
+                $blogArray = (array) $blog;
+                $blogArray['cover_image'] = $coverImages[$blog->id] ?? null;
+                $blogArray['tags'] = $tags[$blog->id] ?? [];
+                return $blogArray;
+            });
 
             return response()->json([
                 'success' => true,

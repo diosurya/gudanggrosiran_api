@@ -11,6 +11,8 @@ class Brand extends Model
 {
     use HasUuids;
 
+    protected $table = 'brands';
+
     protected $guarded = [
         'id'
     ];

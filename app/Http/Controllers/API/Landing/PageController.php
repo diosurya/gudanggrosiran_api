@@ -18,8 +18,8 @@ class PageController extends Controller
         return response()->json($page);
     }
 
-    public function show(Page $page)
-    {
-        return response()->json($page->load('bannerImage'));
-    }
+    // public function show(Page $page)
+    // {
+    //     return response()->json($page->load('bannerImage'));
+    // }
 }

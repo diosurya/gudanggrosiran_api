@@ -18,43 +18,91 @@ class BrandController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = Brand::query();
-
-            // Include products count
-            $query->withCount('products');
+            // Base query dengan LEFT JOIN untuk count products
+            $query = DB::table('brands as b')
+                ->leftJoin('products as p', 'b.id', '=', 'p.brand_id')
+                ->select(
+                    'b.*',
+                    DB::raw('COUNT(p.id) as products_count')
+                );
 
             // Search functionality
-            if ($request->has('search')) {
+            if ($request->has('search') && !empty($request->get('search'))) {
                 $search = $request->get('search');
                 $query->where(function($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('description', 'like', "%{$search}%");
+                    $q->where('b.name', 'like', "%{$search}%")
+                      ->orWhere('b.description', 'like', "%{$search}%");
                 });
             }
 
             // Filter by status
-            if ($request->has('status')) {
-                $query->where('status', $request->get('status'));
+            if ($request->has('status') && !empty($request->get('status'))) {
+                $query->where('b.status', $request->get('status'));
             }
+
+            // Group by untuk menghindari duplikasi karena LEFT JOIN
+            // Sesuaikan dengan kolom yang benar-benar ada di tabel brands
+            $query->groupBy('b.id');
 
             // Sorting
             $sortBy = $request->get('sort_by', 'name');
             $sortOrder = $request->get('sort_order', 'asc');
-            $query->orderBy($sortBy, $sortOrder);
+            
+            // Validasi sort column untuk keamanan
+            $allowedSortColumns = ['name', 'created_at', 'updated_at', 'products_count'];
+            if (!in_array($sortBy, $allowedSortColumns)) {
+                $sortBy = 'name';
+            }
+
+            // Handle sorting untuk products_count (karena itu aggregate function)
+            if ($sortBy === 'products_count') {
+                $query->orderBy(DB::raw('COUNT(p.id)'), $sortOrder);
+            } else {
+                $query->orderBy("b.{$sortBy}", $sortOrder);
+            }
 
             // Pagination or all
             if ($request->get('all') === 'true') {
                 $brands = $query->get();
+                
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Brands retrieved successfully',
+                    'data' => $brands
+                ]);
             } else {
-                $perPage = $request->get('per_page', 15);
-                $brands = $query->paginate($perPage);
-            }
+                // Manual pagination dengan DB builder
+                $perPage = (int) $request->get('per_page', 15);
+                $page = (int) $request->get('page', 1);
+                $offset = ($page - 1) * $perPage;
 
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Brands retrieved successfully',
-                'data' => $brands
-            ]);
+                // Clone query untuk count total
+                $countQuery = clone $query;
+                $total = $countQuery->count(DB::raw('DISTINCT b.id'));
+
+                // Apply pagination
+                $brands = $query->limit($perPage)->offset($offset)->get();
+
+                // Calculate pagination info
+                $lastPage = ceil($total / $perPage);
+                $from = $offset + 1;
+                $to = min($offset + $perPage, $total);
+
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Brands retrieved successfully',
+                    'data' => [
+                        'data' => $brands,
+                        'current_page' => $page,
+                        'per_page' => $perPage,
+                        'total' => $total,
+                        'last_page' => $lastPage,
+                        'from' => $from > $total ? null : $from,
+                        'to' => $total > 0 ? $to : null,
+                        'has_more_pages' => $page < $lastPage
+                    ]
+                ]);
+            }
 
         } catch (\Exception $e) {
             return response()->json([

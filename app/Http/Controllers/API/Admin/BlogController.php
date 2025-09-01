@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Exception;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class BlogController extends Controller
 {
@@ -125,7 +126,26 @@ class BlogController extends Controller
         DB::beginTransaction();
         
         try {
-             $validated = $request->validate([
+            // Log incoming request for debugging
+            Log::info('Blog store request', [
+                'files' => $request->hasFile('images') ? 'Yes' : 'No',
+                'file_count' => $request->hasFile('images') ? count($request->file('images')) : 0,
+                'status' => $request->input('status')
+            ]);
+
+            // Log file details if present
+            if ($request->hasFile('images')) {
+                foreach ($request->file('images') as $index => $file) {
+                    Log::info("File {$index}", [
+                        'name' => $file->getClientOriginalName(),
+                        'mime' => $file->getMimeType(),
+                        'size' => $file->getSize(),
+                        'extension' => $file->getClientOriginalExtension()
+                    ]);
+                }
+            }
+
+            $validated = $request->validate([
                 'title'           => 'required|string|max:255',
                 'slug'            => 'required|string|max:255|unique:blogs,slug',
                 'excerpt'         => 'nullable|string',
@@ -133,15 +153,15 @@ class BlogController extends Controller
                 'seo_title'       => 'nullable|string|max:255',
                 'seo_description' => 'nullable|string',
                 'seo_keywords'    => 'nullable|string',
-                'meta_title'       => 'nullable|string|max:255',
+                'meta_title'      => 'nullable|string|max:255',
                 'meta_description' => 'nullable|string',
-                'meta_keywords'    => 'nullable|string',
+                'meta_keywords'   => 'nullable|string',
                 'category_id'     => 'nullable|uuid|exists:blog_categories,id',
-                'status'          => 'required|in:draft,published',
-                'images.*'        => 'nullable|image|mimes:jpg,jpeg,png',
+                'status'          => 'required|in:draft,published,deactivated', // Added deactivated
+                'images.*'        => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120', // Added webp and max size
             ]);
 
-            // create blog
+            // Create blog
             $blog = Blog::create([
                 'title'           => $validated['title'],
                 'slug'            => $validated['slug'],
@@ -150,31 +170,47 @@ class BlogController extends Controller
                 'seo_title'       => $validated['seo_title'] ?? null,
                 'seo_description' => $validated['seo_description'] ?? null,
                 'seo_keywords'    => $validated['seo_keywords'] ?? null,
-                'meta_title'       => $validated['meta_title'] ?? null,
+                'meta_title'      => $validated['meta_title'] ?? null,
                 'meta_description' => $validated['meta_description'] ?? null,
-                'meta_keywords'    => $validated['meta_keywords'] ?? null,
+                'meta_keywords'   => $validated['meta_keywords'] ?? null,
                 'category_id'     => $validated['category_id'] ?? null,
                 'status'          => $validated['status'],
             ]);
 
-            // simpan images (jika ada)
+            // Save images (if any)
             if ($request->hasFile('images')) {
                 foreach ($request->file('images') as $index => $image) {
-                    $path = $image->store('blogs', 'public'); // storage/app/public/blogs
-                    $isCover = $index === 0;
+                    try {
+                        // Store the image
+                        $path = $image->store('blogs', 'public'); // storage/app/public/blogs
+                        $isCover = $index === 0;
 
-                    DB::table('blog_images')->insert([
-                        'id'         => (string) Str::uuid(),
-                        'blog_id'    => $blog->id,
-                        'path'       => '/storage/' . $path,
-                        'is_cover'   => $isCover,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
+                        // Insert into blog_images table
+                        DB::table('blog_images')->insert([
+                            'id'         => (string) Str::uuid(),
+                            'blog_id'    => $blog->id,
+                            'path'       => '/storage/' . $path,
+                            'is_cover'   => $isCover,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+
+                        Log::info("Image {$index} saved successfully", [
+                            'path' => $path,
+                            'is_cover' => $isCover
+                        ]);
+
+                    } catch (Exception $imageError) {
+                        Log::error("Failed to save image {$index}", [
+                            'error' => $imageError->getMessage(),
+                            'file_name' => $image->getClientOriginalName()
+                        ]);
+                        // Continue with other images instead of failing completely
+                    }
                 }
             }
 
-            // ambil kembali blog yang baru dibuat
+            // Fetch the newly created blog with category information
             $blog = DB::table('blogs as b')
                 ->leftJoin('blog_categories as c', 'b.category_id', '=', 'c.id')
                 ->select([
@@ -186,17 +222,31 @@ class BlogController extends Controller
 
             DB::commit();
 
+            Log::info('Blog created successfully', ['blog_id' => $blog->id]);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Blog created successfully',
                 'data' => $blog
             ], 201);
 
-            Log::info('Files', $request->file('images') ?? []);
-
-
+        } catch (ValidationException $e) {
+            DB::rollback();
+            Log::error('Blog validation failed', ['errors' => $e->errors()]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors()
+            ], 422);
+            
         } catch (Exception $e) {
             DB::rollback();
+            Log::error('Failed to create blog', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create blog: ' . $e->getMessage()

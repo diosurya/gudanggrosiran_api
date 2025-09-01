@@ -16,48 +16,95 @@ class TagController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            $query = Tag::query();
-
-            // Include products count
-            $query->withCount('products');
+            // Menggunakan DB Builder instead of Eloquent
+            $query = DB::table('tags as t')
+                ->leftJoin('product_tags as pt', 't.id', '=', 'pt.tag_id')
+                ->select(
+                    't.*',
+                    DB::raw('COUNT(pt.product_id) as products_count')
+                );
 
             // Search functionality
-            if ($request->has('search')) {
+            if ($request->has('search') && !empty($request->get('search'))) {
                 $search = $request->get('search');
                 $query->where(function($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('description', 'like', "%{$search}%");
+                    $q->where('t.name', 'like', "%{$search}%")
+                      ->orWhere('t.description', 'like', "%{$search}%");
                 });
             }
 
-            // Filter by status
-            if ($request->has('status')) {
-                $query->where('status', $request->get('status'));
+            // Filter by status (uncomment jika kolom status ada)
+            if ($request->has('status') && !empty($request->get('status'))) {
+                $query->where('t.status', $request->get('status'));
             }
 
             // Filter by color
-            if ($request->has('color')) {
-                $query->where('color', $request->get('color'));
+            if ($request->has('color') && !empty($request->get('color'))) {
+                $query->where('t.color', $request->get('color'));
             }
+
+            // Group by untuk menghindari duplikasi karena LEFT JOIN
+            $query->groupBy('t.id');
 
             // Sorting
             $sortBy = $request->get('sort_by', 'name');
             $sortOrder = $request->get('sort_order', 'asc');
-            $query->orderBy($sortBy, $sortOrder);
+            
+            // Validasi sort column untuk keamanan
+            $allowedSortColumns = ['name', 'color', 'status', 'created_at', 'updated_at', 'products_count'];
+            if (!in_array($sortBy, $allowedSortColumns)) {
+                $sortBy = 'name';
+            }
+
+            // Handle sorting untuk products_count (karena itu aggregate function)
+            if ($sortBy === 'products_count') {
+                $query->orderBy(DB::raw('COUNT(pt.product_id)'), $sortOrder);
+            } else {
+                $query->orderBy("t.{$sortBy}", $sortOrder);
+            }
 
             // Pagination or all
             if ($request->get('all') === 'true') {
                 $tags = $query->get();
+                
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Tags retrieved successfully',
+                    'data' => $tags
+                ]);
             } else {
-                $perPage = $request->get('per_page', 15);
-                $tags = $query->paginate($perPage);
-            }
+                // Manual pagination dengan DB builder
+                $perPage = (int) $request->get('per_page', 15);
+                $page = (int) $request->get('page', 1);
+                $offset = ($page - 1) * $perPage;
 
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Tags retrieved successfully',
-                'data' => $tags
-            ]);
+                // Clone query untuk count total
+                $countQuery = clone $query;
+                $total = $countQuery->count(DB::raw('DISTINCT t.id'));
+
+                // Apply pagination
+                $tags = $query->limit($perPage)->offset($offset)->get();
+
+                // Calculate pagination info
+                $lastPage = ceil($total / $perPage);
+                $from = $offset + 1;
+                $to = min($offset + $perPage, $total);
+
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Tags retrieved successfully',
+                    'data' => [
+                        'data' => $tags,
+                        'current_page' => $page,
+                        'per_page' => $perPage,
+                        'total' => $total,
+                        'last_page' => $lastPage,
+                        'from' => $from > $total ? null : $from,
+                        'to' => $total > 0 ? $to : null,
+                        'has_more_pages' => $page < $lastPage
+                    ]
+                ]);
+            }
 
         } catch (\Exception $e) {
             return response()->json([
@@ -68,15 +115,150 @@ class TagController extends Controller
         }
     }
 
-    
+    /**
+     * Store a newly created tag
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255|unique:tags,name',
+            'description' => 'nullable|string',
+            'status' => 'sometimes|in:active,inactive',
+            'sort_order' => 'nullable|integer|min:0',
+            'meta_title' => 'nullable|string|max:60',
+            'meta_description' => 'nullable|string|max:160',
+            'meta_keywords' => 'nullable|string|max:255'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $tagData = $request->only([
+                'name', 'description', 'color', 'status', 'sort_order',
+                'meta_title', 'meta_description', 'meta_keywords'
+            ]);
+
+            // Generate slug
+            $tagData['slug'] = Str::slug($request->name);
+            
+            // Ensure unique slug menggunakan DB builder
+            $originalSlug = $tagData['slug'];
+            $count = 1;
+            while (DB::table('tags')->where('slug', $tagData['slug'])->exists()) {
+                $tagData['slug'] = $originalSlug . '-' . $count;
+                $count++;
+            }
+
+            // Set default values
+            if (!isset($tagData['status'])) {
+                $tagData['status'] = 'active';
+            }
+            
+            if (!isset($tagData['color']) || empty($tagData['color'])) {
+                $tagData['color'] = '#1976d2';
+            }
+
+            // Add timestamps
+            $tagData['created_at'] = now();
+            $tagData['updated_at'] = now();
+
+            // Insert menggunakan DB builder
+            $tagId = DB::table('tags')->insertGetId($tagData);
+            
+            // Get the created tag
+            $tag = DB::table('tags')->where('id', $tagId)->first();
+
+            DB::commit();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Tag created successfully',
+                'data' => $tag
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to create tag',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Display the specified tag
+     */
+    public function show($id): JsonResponse
+    {
+        try {
+            // Get tag dengan products count menggunakan DB builder
+            $tag = DB::table('tags as t')
+                ->leftJoin('product_tags as pt', 't.id', '=', 'pt.tag_id')
+                ->leftJoin('products as p', 'pt.product_id', '=', 'p.id')
+                ->where('t.id', $id)
+                ->select(
+                    't.*',
+                    DB::raw('COUNT(pt.product_id) as products_count')
+                )
+                ->groupBy('t.id')
+                ->first();
+
+            if (!$tag) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Tag not found'
+                ], 404);
+            }
+
+            // Get related products (optional)
+            $products = DB::table('products as p')
+                ->join('product_tags as pt', 'p.id', '=', 'pt.product_id')
+                ->where('pt.tag_id', $id)
+                ->select('p.*')
+                ->get();
+
+            $tag->products = $products;
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Tag retrieved successfully',
+                'data' => $tag
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve tag',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     /**
      * Update the specified tag
      */
     public function update(Request $request, $id): JsonResponse
     {
         try {
-            $tag = Tag::findOrFail($id);
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            // Check if tag exists
+            $tag = DB::table('tags')->where('id', $id)->first();
+            if (!$tag) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Tag not found'
+                ], 404);
+            }
+
+        } catch (\Exception $e) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Tag not found'
@@ -84,9 +266,8 @@ class TagController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'name' => 'sometimes|required|string|max:255|unique:tags,name,' . $tag->id,
+            'name' => 'sometimes|required|string|max:255|unique:tags,name,' . $id,
             'description' => 'nullable|string',
-            'color' => 'nullable|string|regex:/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/',
             'status' => 'sometimes|in:active,inactive',
             'sort_order' => 'nullable|integer|min:0',
             'meta_title' => 'nullable|string|max:60',
@@ -117,20 +298,27 @@ class TagController extends Controller
                 // Ensure unique slug
                 $originalSlug = $tagData['slug'];
                 $count = 1;
-                while (Tag::where('slug', $tagData['slug'])->where('id', '!=', $tag->id)->exists()) {
+                while (DB::table('tags')->where('slug', $tagData['slug'])->where('id', '!=', $id)->exists()) {
                     $tagData['slug'] = $originalSlug . '-' . $count;
                     $count++;
                 }
             }
 
-            $tag->update($tagData);
+            // Add updated timestamp
+            $tagData['updated_at'] = now();
+
+            // Update menggunakan DB builder
+            DB::table('tags')->where('id', $id)->update($tagData);
+
+            // Get updated tag
+            $updatedTag = DB::table('tags')->where('id', $id)->first();
 
             DB::commit();
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Tag updated successfully',
-                'data' => $tag
+                'data' => $updatedTag
             ]);
 
         } catch (\Exception $e) {
@@ -149,8 +337,16 @@ class TagController extends Controller
     public function destroy($id): JsonResponse
     {
         try {
-            $tag = Tag::findOrFail($id);
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            // Check if tag exists
+            $tag = DB::table('tags')->where('id', $id)->first();
+            if (!$tag) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Tag not found'
+                ], 404);
+            }
+
+        } catch (\Exception $e) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Tag not found'
@@ -161,8 +357,10 @@ class TagController extends Controller
 
         try {
             // Detach from all products before deleting
-            $tag->products()->detach();
-            $tag->delete();
+            DB::table('product_tags')->where('tag_id', $id)->delete();
+            
+            // Delete tag
+            DB::table('tags')->where('id', $id)->delete();
 
             DB::commit();
 
@@ -187,13 +385,19 @@ class TagController extends Controller
     public function popular(Request $request): JsonResponse
     {
         try {
-            $limit = $request->get('limit', 10);
+            $limit = (int) $request->get('limit', 10);
             
-            $tags = Tag::where('status', 'active')
-                ->withCount('products')
+            $tags = DB::table('tags as t')
+                ->leftJoin('product_tags as pt', 't.id', '=', 'pt.tag_id')
+                ->select(
+                    't.*',
+                    DB::raw('COUNT(pt.product_id) as products_count')
+                )
+                ->where('t.status', 'active')
+                ->groupBy('t.id')
                 ->having('products_count', '>', 0)
-                ->orderBy('products_count', 'desc')
-                ->orderBy('name')
+                ->orderBy(DB::raw('COUNT(pt.product_id)'), 'desc')
+                ->orderBy('t.name')
                 ->limit($limit)
                 ->get();
 
@@ -219,17 +423,23 @@ class TagController extends Controller
     {
         try {
             // Validate color format
-            if (!preg_match('/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/', $color)) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Invalid color format'
-                ], 400);
-            }
+            // if (!preg_match('/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/', $color)) {
+            //     return response()->json([
+            //         'status' => 'error',
+            //         'message' => 'Invalid color format'
+            //     ], 400);
+            // }
 
-            $tags = Tag::where('color', $color)
-                ->where('status', 'active')
-                ->withCount('products')
-                ->orderBy('name')
+            $tags = DB::table('tags as t')
+                ->leftJoin('product_tags as pt', 't.id', '=', 'pt.tag_id')
+                ->select(
+                    't.*',
+                    DB::raw('COUNT(pt.product_id) as products_count')
+                )
+                ->where('t.color', $color)
+                ->where('t.status', 'active')
+                ->groupBy('t.id')
+                ->orderBy('t.name')
                 ->get();
 
             return response()->json([
@@ -253,7 +463,8 @@ class TagController extends Controller
     public function colors(): JsonResponse
     {
         try {
-            $colors = Tag::where('status', 'active')
+            $colors = DB::table('tags')
+                ->where('status', 'active')
                 ->select('color')
                 ->distinct()
                 ->orderBy('color')
@@ -294,12 +505,17 @@ class TagController extends Controller
         }
 
         try {
-            Tag::whereIn('id', $request->ids)
-               ->update(['status' => $request->status]);
+            $affected = DB::table('tags')
+                ->whereIn('id', $request->ids)
+                ->update([
+                    'status' => $request->status,
+                    'updated_at' => now()
+                ]);
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Tags status updated successfully'
+                'message' => 'Tags status updated successfully',
+                'affected_rows' => $affected
             ]);
 
         } catch (\Exception $e) {
@@ -332,18 +548,18 @@ class TagController extends Controller
         DB::beginTransaction();
 
         try {
-            $tags = Tag::whereIn('id', $request->ids)->get();
-
-            foreach ($tags as $tag) {
-                $tag->products()->detach();
-                $tag->delete();
-            }
+            // Delete pivot records first
+            DB::table('product_tags')->whereIn('tag_id', $request->ids)->delete();
+            
+            // Delete tags
+            $deleted = DB::table('tags')->whereIn('id', $request->ids)->delete();
 
             DB::commit();
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Tags deleted successfully'
+                'message' => 'Tags deleted successfully',
+                'deleted_count' => $deleted
             ]);
 
         } catch (\Exception $e) {
@@ -363,7 +579,7 @@ class TagController extends Controller
     {
         try {
             $query = $request->get('q', '');
-            $limit = $request->get('limit', 10);
+            $limit = (int) $request->get('limit', 10);
 
             if (empty($query)) {
                 return response()->json([
@@ -373,11 +589,13 @@ class TagController extends Controller
                 ]);
             }
 
-            $tags = Tag::where('status', 'active')
+            $tags = DB::table('tags')
+                ->where('status', 'active')
                 ->where('name', 'like', "%{$query}%")
                 ->orderBy('name')
                 ->limit($limit)
-                ->get(['id', 'name', 'color']);
+                ->select('id', 'name', 'color')
+                ->get();
 
             return response()->json([
                 'status' => 'success',
@@ -394,116 +612,22 @@ class TagController extends Controller
         }
     }
 
-
-    
-
-    /**
-     * Store a newly created tag
-     */
-    public function store(Request $request): JsonResponse
-    {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255|unique:tags,name',
-            'description' => 'nullable|string',
-            'color' => 'nullable|string|regex:/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/',
-            'status' => 'sometimes|in:active,inactive',
-            'sort_order' => 'nullable|integer|min:0',
-            'meta_title' => 'nullable|string|max:60',
-            'meta_description' => 'nullable|string|max:160',
-            'meta_keywords' => 'nullable|string|max:255'
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        DB::beginTransaction();
-
-        try {
-            $tagData = $request->only([
-                'name', 'description', 'color', 'status', 'sort_order',
-                'meta_title', 'meta_description', 'meta_keywords'
-            ]);
-
-            // Generate slug
-            $tagData['slug'] = Str::slug($request->name);
-            
-            // Ensure unique slug
-            $originalSlug = $tagData['slug'];
-            $count = 1;
-            while (Tag::where('slug', $tagData['slug'])->exists()) {
-                $tagData['slug'] = $originalSlug . '-' . $count;
-                $count++;
-            }
-
-            // Set default values
-            if (!isset($tagData['status'])) {
-                $tagData['status'] = 'active';
-            }
-            
-            if (!isset($tagData['color']) || empty($tagData['color'])) {
-                $tagData['color'] = '#1976d2';
-            }
-
-            $tag = Tag::create($tagData);
-
-            DB::commit();
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Tag created successfully',
-                'data' => $tag
-            ], 201);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to create tag',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Display the specified tag
-     */
-    public function show($id): JsonResponse
-    {
-        try {
-            $tag = Tag::with(['products'])->withCount('products')->findOrFail($id);
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Tag retrieved successfully',
-                'data' => $tag
-            ]);
-
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Tag not found'
-            ], 404);
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Failed to retrieve tag',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-  
     /**
      * Cleanup unused tags
      */
     public function cleanup(): JsonResponse
     {
         try {
-            $deletedCount = DB::table('tags')->where('usage_count', 0)->delete();
+            // Get tags yang tidak memiliki relasi dengan products
+            $unusedTagIds = DB::table('tags as t')
+                ->leftJoin('product_tags as pt', 't.id', '=', 'pt.tag_id')
+                ->whereNull('pt.tag_id')
+                ->pluck('t.id');
+
+            $deletedCount = 0;
+            if ($unusedTagIds->isNotEmpty()) {
+                $deletedCount = DB::table('tags')->whereIn('id', $unusedTagIds)->delete();
+            }
 
             return response()->json([
                 'success' => true,

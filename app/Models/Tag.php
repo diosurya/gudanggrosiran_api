@@ -11,6 +11,8 @@ class Tag extends Model
 {
     use HasUuids;
 
+    protected $table = 'tags';
+
     protected $guarded = [
         'id'
     ];

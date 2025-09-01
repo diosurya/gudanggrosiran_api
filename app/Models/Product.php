@@ -10,35 +10,8 @@ class Product extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $fillable = [
-        'name',
-        'slug',
-        'description',
-        'short_description',
-        'sku',
-        'price',
-        'sale_price',
-        'stock_quantity',
-        'category_product_id',
-        'brand_id',
-        'weight',
-        'dimensions',
-        'status',
-        'featured',
-        'meta_title',
-        'meta_description',
-        'meta_keywords',
-        'og_title',
-        'og_description',
-        'og_image',
-        'twitter_title',
-        'twitter_description',
-        'twitter_image',
-        'canonical_url',
-        'robots',
-        'schema_type',
-        'views_count',
-        'sales_count'
+    protected $guarded = [
+        'id'
     ];
 
     protected $casts = [
@@ -51,9 +24,6 @@ class Product extends Model
         'sales_count' => 'integer'
     ];
 
-    protected $dates = [
-        'deleted_at'
-    ];
 
     // Relationships
 

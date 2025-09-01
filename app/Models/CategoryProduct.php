@@ -12,6 +12,8 @@ class CategoryProduct extends Model
 {
     use HasFactory;
 
+    protected $table = 'product_categories';
+
     protected $guarded = [
         'id'
     ];
