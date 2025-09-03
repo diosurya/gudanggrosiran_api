@@ -157,11 +157,12 @@ class BlogController extends Controller
                 'meta_description' => 'nullable|string',
                 'meta_keywords'   => 'nullable|string',
                 'category_id'     => 'nullable|uuid|exists:blog_categories,id',
-                'status'          => 'required|in:draft,published,deactivated', // Added deactivated
-                'images.*'        => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120', // Added webp and max size
+                'author_id'       => 'nullable|uuid|exists:users,id',
+                'status'          => 'required|in:draft,published,deactivated',
+                'images.*'        => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
             ]);
 
-            // Create blog
+
             $blog = Blog::create([
                 'title'           => $validated['title'],
                 'slug'            => $validated['slug'],
@@ -174,6 +175,7 @@ class BlogController extends Controller
                 'meta_description' => $validated['meta_description'] ?? null,
                 'meta_keywords'   => $validated['meta_keywords'] ?? null,
                 'category_id'     => $validated['category_id'] ?? null,
+                'author_id'     => $validated['author_id'] ?? null,
                 'status'          => $validated['status'],
             ]);
 
@@ -328,6 +330,7 @@ class BlogController extends Controller
                 'meta_description'=> 'nullable|string',
                 'meta_keywords'   => 'nullable|string',
                 'category_id'     => 'required|uuid|exists:blog_categories,id',
+                'author_id'       => 'nullable|uuid|exists:users,id',
                 'status'          => 'required|in:draft,published,deactived',
                 'images.*'        => 'nullable|image|mimes:jpg,jpeg,png',
             ]);
@@ -341,6 +344,7 @@ class BlogController extends Controller
                 'meta_description'=> $validated['meta_description'] ?? null,
                 'meta_keywords'   => $validated['meta_keywords'] ?? null,
                 'category_id'     => $validated['category_id'],
+                'author_id'       => $validated['author_id'],
                 'status'          => $validated['status'],
                 'updated_at'      => now()
             ];

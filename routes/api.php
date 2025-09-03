@@ -19,7 +19,6 @@ use App\Http\Controllers\Api\Landing\ProductController as ProductLanding;
 use App\Http\Controllers\Api\Landing\BlogController as BlogLanding;
 use App\Http\Controllers\Api\Landing\PageController as PageLanding;
 
-
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
